@@ -11,7 +11,7 @@ def initialize_variables(m: gp.Model, A, S, Aux, relus, A_type, S_type, Aux_type
     x = {}
     for index, a in enumerate(A):
         for t in range(horizon):
-            x[(a, t)] = m.addVar(name=str(VARINDEX), vtype=A_type[index], lb=(-1.0 * GRBINF), ub=(-1.0 * GRBINF))
+            x[(a, t)] = m.addVar(name=str(VARINDEX), vtype=A_type[index], lb=(-1.0 * GRBINF), ub=GRBINF)
             colnames.append(x[(a, t)])
             VARINDEX += 1
 
