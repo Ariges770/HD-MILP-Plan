@@ -137,7 +137,7 @@ def encode_goal_constraints(m: gp.Model, goals, S, Aux, y, v, horizon):
 
     return m
 
-def encode_activation_constraints(m: gp.Model, relus, bias, inputNeurons, mappings, weights, A, S, x, y, z, zPrime, bigM, horizon):
+def encode_bigm_activation_constraints(m: gp.Model, relus, bias, inputNeurons, mappings, weights, A, S, x, y, z, zPrime, bigM, horizon):
     
     for t in range(horizon):
         for relu in relus:
@@ -170,6 +170,46 @@ def encode_activation_constraints(m: gp.Model, relus, bias, inputNeurons, mappin
             # Constraint: sum(coef * input) - z[(relu, t)] - bigM * zPrime[(relu, t)] >= RHS - bigM
             row_expr = gp.LinExpr(coefs + [-1.0, -1.0 * bigM], inputs + [z[(relu, t)], zPrime[(relu, t)]])
             m.addLConstr(row_expr, sense=GRB.GREATER_EQUAL, rhs=RHS)
+    
+    return m
+
+def encode_indicator_activation_constraints(m: gp.Model, relus, bias, inputNeurons, mappings, weights, A, S, x, y, z, zPrime: dict[tuple, gp.Var], bigM, horizon):
+    
+    for t in range(horizon):
+        for relu in relus:
+            
+            m.addLConstr(z[(relu, t)] >= 0)
+            
+            inputs = []
+            coefs = []
+            RHS = -1.0 * bias[relu]
+            
+            for inp in inputNeurons[relu]:
+                if inp in mappings:
+                    coefs.append(weights[(inp, relu)])
+                    if mappings[inp] in A:
+                        inputs.append(x[(mappings[inp], t)])
+                    else:
+                        inputs.append(y[(mappings[inp], t)])
+                else:
+                    coefs.append(weights[(inp, relu)])
+                    inputs.append(z[(inp, t)])
+        
+            # Constraint: sum(coef * input) - z[(relu, t)] <= RHS
+            input_row_expr = gp.LinExpr(coefs, inputs)
+            row_expr = gp.LinExpr(coefs + [-1.0], inputs + [z[(relu, t)]])
+            m.addLConstr(row_expr, sense=GRB.LESS_EQUAL, rhs=RHS)
+            
+            # Input
+            m.addConstr((zPrime[(relu, t)] == 0.0) >> (input_row_expr <= RHS))
+            
+            m.addConstr((zPrime[(relu, t)] == 1.0) >> (input_row_expr >= RHS))
+            
+            # Output
+            m.addConstr((zPrime[(relu, t)] == 0.0) >> (z[(relu, t)] <= 0.0))
+            
+            m.addConstr((zPrime[(relu, t)] == 1.0) >> (row_expr >= RHS))
+
     
     return m
 
@@ -228,7 +268,6 @@ def encode_reward(m: gp.Model, reward, colnames: list[gp.Var], A, S, Aux, x, y, 
     # print(f"{colnames=}")
     m.update()
     colname_names = [var.VarName for var in colnames]
-    # print([variable.VarName for variable in colnames])
     
     for t in range(horizon):
         for var, weight in reward:
@@ -241,12 +280,13 @@ def encode_reward(m: gp.Model, reward, colnames: list[gp.Var], A, S, Aux, x, y, 
                     objcoefs[colname_names.index(y[(var, t)].varName)] = -1.0 * float(weight)
             else:
                 if var[len(var) - 1] == "'":
-                    print(f"{v[(var[:-1], t + 1)].varName=}")
                     objcoefs[colname_names.index(v[(var[:-1], t + 1)].varName)] = -1.0 * float(weight)
                 else:
                     objcoefs[colname_names.index(v[(var, t)].varName)] = -1.0 * float(weight)
+    linobj = gp.LinExpr()
     for index, obj in enumerate(objcoefs):
-        m.setObjectiveN(obj, index, 0)
+        linobj += obj * colnames[index]
         
+    m.setObjective(expr=linobj, sense=GRB.MINIMIZE)
     m.update()
     return m

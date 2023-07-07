@@ -1,12 +1,12 @@
 import cplex
 
-import gurobipy as gp
-from gurobipy import GRB
-
 import os
 
+import seaborn as sns
 import matplotlib.pyplot as plt
 from dotenv import load_dotenv
+import gurobipy as gp
+from gurobipy import GRB
 
 import hd_milp_plan as c_plan
 import gurobi_hd_milp_plan as g_plan
@@ -102,24 +102,24 @@ def encode_cplex_hd_milp_plan(domain, instance, horizon, sparsification, bound):
         print("An optimal plan w.r.t. the given DNN is found:")
         
         solX = solution.get_values()
-        #for s in S:
-        #    print("%s at time %d by: %f " % (s,0,solX[y[(s,0)]]))
+        for s in S:
+           print("%s at time %d by: %f " % (s,0,solX[y[(s,0)]]))
         for t in range(horizon):
             for a in A:
                 print("%s at time %d by: %f " % (a,t,solX[x[(a,t)]]))
-            #for s in S:
-            #    print("%s at time %d by: %f " % (s,t+1,solX[y[(s,t+1)]]))
+            for s in S:
+               print("%s at time %d by: %f " % (s,t+1,solX[y[(s,t+1)]]))
     elif solution.get_status() == solution.status.MIP_feasible or solution.get_status() == solution.status.MIP_abort_feasible or solution.get_status() == solution.status.MIP_time_limit_feasible or solution.get_status() == solution.status.MIP_dettime_limit_feasible or solution.get_status() == solution.status.optimal_tolerance:
         print("A plan w.r.t. the given DNN is found:")
         
         solX = solution.get_values()
-        #for s in S:
-        #    print("%s at time %d by: %f " % (s,0,solX[y[(s,0)]]))
+        for s in S:
+           print("%s at time %d by: %f " % (s,0,solX[y[(s,0)]]))
         for t in range(horizon):
             for a in A:
                 print("%s at time %d by: %f " % (a,t,solX[x[(a,t)]]))
-            #for s in S:
-            #    print("%s at time %d by: %f " % (s,t+1,solX[y[(s,t+1)]]))
+            for s in S:
+               print("%s at time %d by: %f " % (s,t+1,solX[y[(s,t+1)]]))
     elif solution.get_status() == solution.status.MIP_abort_infeasible:
         print("Planning is interrupted by the user.")
     elif solution.get_status() == solution.status.MIP_time_limit_infeasible:
@@ -165,21 +165,27 @@ def encode_gurobi_hd_milp_plan(domain, instance, horizon, sparsification, bound)
     # Initialize variables
     m, x, y, v, z, zPrime, colnames = g_plan.initialize_variables(m, A, S, Aux, relus, A_type, S_type, Aux_type, horizon)
     
+    
     # Set global constraints
     m = g_plan.encode_global_constraints(m, constraints, A, S, Aux, x, y, v, horizon)
+    
     
     # Set initial state
     m = g_plan.encode_initial_constraints(m, initial, y)
     
+    
     # Set goal state
     m = g_plan.encode_goal_constraints(m, goal, S, Aux, y, v, horizon)
-
+    
+    
     # Set node activations
-    m = g_plan.encode_activation_constraints(m, relus, bias, inputNeurons, mappings, weights, A, S, x, y, z, zPrime, bigM, horizon)
+    # m = g_plan.encode_bigm_activation_constraints(m, relus, bias, inputNeurons, mappings, weights, A, S, x, y, z, zPrime, bigM, horizon)
+    m = g_plan.encode_indicator_activation_constraints(m, relus, bias, inputNeurons, mappings, weights, A, S, x, y, z, zPrime, bigM, horizon)
+    
     
     # Predict the next state using DNNs
     m = g_plan.encode_nextstate_constraints(m, outputs, bias, inputNeurons, mappings, weights, A, S, x, y, z, activationType, S_type, bigM, horizon)
-
+    
     if bound == "True":
         # Set strengthened activation constraints
         c = c_plan.encode_strengthened_activation_constraints(c, A, S, relus, bias, inputNeurons, mappings, weights, colnames, x, y, z, zPrime, horizon)
@@ -187,7 +193,6 @@ def encode_gurobi_hd_milp_plan(domain, instance, horizon, sparsification, bound)
     if len(outputs) < len(S):
         # Set known transition function
         c = c_plan.encode_known_transitions(c, transitions, A, S, Aux, x, y, v, horizon)
-
     # Reward function
     m = g_plan.encode_reward(m, reward, colnames, A, S, Aux, x, y, v, horizon)
 
@@ -199,97 +204,66 @@ def encode_gurobi_hd_milp_plan(domain, instance, horizon, sparsification, bound)
     
     m.optimize()
     
+    data = {
+        "Reward": m.ObjVal,
+        "Time": m.Runtime,
+        "Dual": m.ObjBoundC
+    }
+    
+    
+    # solX = [var.Xn for var in m.getVars()]
+    # solX = [var.VarName for var in m.getVars()]
+    
+    # for t in range(horizon):
+    #     for a in A:
+    #         print(f"{x[(a,t)].VarName=}")
+    #         print("%s at time %d by: %f " % (a,t,solX[int(x[(a,t)].VarName)]))
+            
+            
+    print("")
+
+    # if m.Status == GRB.Status.INFEASIBLE:
+    #     print("No plans w.r.t. the given DNN exists.")
+    # elif m.Status == GRB.Status.OPTIMAL:
+    #     print("An optimal plan w.r.t. the given DNN is found:")
+        
+    #     solX = [var.Xn for var in m.getVars()]
+        
+    #     for s in S:
+    #        print("%s at time %d by: %f " % (s, 0, solX[ int( y[(s,0)].VarName ) ]))
+    #     for t in range(horizon):
+    #         for a in A:
+    #             print("%s at time %d by: %f " % (a, t, solX[ int( x[(a, t)].VarName ) ]))
+    #         for s in S:
+    #            print("%s at time %d by: %f " % (s,t+1,solX[ int( y[(s,t+1)].VarName ) ]))
+    
+    
+    
+    # elif solution.get_status() == solution.status.MIP_feasible or solution.get_status() == solution.status.MIP_abort_feasible or solution.get_status() == solution.status.MIP_time_limit_feasible or solution.get_status() == solution.status.MIP_dettime_limit_feasible or solution.get_status() == solution.status.optimal_tolerance:
+    #     print("A plan w.r.t. the given DNN is found:")
+        
+    #     solX = solution.get_values()
+    #     #for s in S:
+    #     #    print("%s at time %d by: %f " % (s,0,solX[y[(s,0)]]))
+    #     for t in range(horizon):
+    #         for a in A:
+    #             print("%s at time %d by: %f " % (a,t,solX[x[(a,t)]]))
+    #         #for s in S:
+    #         #    print("%s at time %d by: %f " % (s,t+1,solX[y[(s,t+1)]]))
+    # elif solution.get_status() == solution.status.MIP_abort_infeasible:
+    #     print("Planning is interrupted by the user.")
+    # elif solution.get_status() == solution.status.MIP_time_limit_infeasible:
+    #     print("Planning is terminated by the time limit without a plan.")
+    # else:
+    #     print("Planning is interrupted. See the status message: %d" % solution.get_status())
+
+    print("")
     
     # except gp.GurobiError as e: 
     #     print('Error code ' + str(e.errno) + ': ' + str(e))
     # except AttributeError:
     #     print('Encountered an attribute error ')
     
-    return
-    
-    
-    # CPLEX
-    c = cplex.Cplex()
-
-    # Set number of threads
-    c.parameters.threads.set(1)
-
-    # Initialize variables
-    c, x, y, v, z, zPrime, vartypes, colnames = c_plan.initialize_variables(c, A, S, Aux, relus, A_type, S_type, Aux_type, horizon)
-
-    # Set global constraints
-    c = c_plan.encode_global_constraints(c, constraints, A, S, Aux, x, y, v, horizon)
-
-    # Set initial state
-    c = c_plan.encode_initial_constraints(c, initial, y)
-
-    # Set goal state
-    c = c_plan.encode_goal_constraints(c, goal, S, Aux, y, v, horizon)
-
-    # Set node activations
-    c = c_plan.encode_activation_constraints(c, relus, bias, inputNeurons, mappings, weights, A, S, x, y, z, zPrime, bigM, horizon)
-
-    # Predict the next state using DNNs
-    c = c_plan.encode_nextstate_constraints(c, outputs, bias, inputNeurons, mappings, weights, A, S, x, y, z, activationType, S_type, bigM, horizon)
-
-    if bound == "True":
-        # Set strengthened activation constraints
-        c = c_plan.encode_strengthened_activation_constraints(c, A, S, relus, bias, inputNeurons, mappings, weights, colnames, x, y, z, zPrime, horizon)
-
-    if len(outputs) < len(S):
-        # Set known transition function
-        c = c_plan.encode_known_transitions(c, transitions, A, S, Aux, x, y, v, horizon)
-
-    # Reward function
-    c = c_plan.encode_reward(c, reward, colnames, A, S, Aux, x, y, v, horizon)
-
-    # Set time limit
-    #c.parameters.timelimit.set(3600.0)
-    
-    # Set optimality tolerance
-    #c.parameters.mip.tolerances.mipgap.set(0.2)
-    
-    c.solve()
-
-    #c.write("hd_milp_plan.lp")
-
-    solution = c.solution
-    
-    print("")
-
-    if solution.get_status() == solution.status.MIP_infeasible:
-        print("No plans w.r.t. the given DNN exists.")
-    elif solution.get_status() == solution.status.MIP_optimal:
-        print("An optimal plan w.r.t. the given DNN is found:")
-        
-        solX = solution.get_values()
-        #for s in S:
-        #    print("%s at time %d by: %f " % (s,0,solX[y[(s,0)]]))
-        for t in range(horizon):
-            for a in A:
-                print("%s at time %d by: %f " % (a,t,solX[x[(a,t)]]))
-            #for s in S:
-            #    print("%s at time %d by: %f " % (s,t+1,solX[y[(s,t+1)]]))
-    elif solution.get_status() == solution.status.MIP_feasible or solution.get_status() == solution.status.MIP_abort_feasible or solution.get_status() == solution.status.MIP_time_limit_feasible or solution.get_status() == solution.status.MIP_dettime_limit_feasible or solution.get_status() == solution.status.optimal_tolerance:
-        print("A plan w.r.t. the given DNN is found:")
-        
-        solX = solution.get_values()
-        #for s in S:
-        #    print("%s at time %d by: %f " % (s,0,solX[y[(s,0)]]))
-        for t in range(horizon):
-            for a in A:
-                print("%s at time %d by: %f " % (a,t,solX[x[(a,t)]]))
-            #for s in S:
-            #    print("%s at time %d by: %f " % (s,t+1,solX[y[(s,t+1)]]))
-    elif solution.get_status() == solution.status.MIP_abort_infeasible:
-        print("Planning is interrupted by the user.")
-    elif solution.get_status() == solution.status.MIP_time_limit_infeasible:
-        print("Planning is terminated by the time limit without a plan.")
-    else:
-        print("Planning is interrupted. See the status message: %d" % solution.get_status())
-
-    print("")
-
     return
 
 
@@ -324,6 +298,7 @@ if __name__ == "__main__":
             setBounds = True
 
     if setDomain and setInstance and setHorizon and setBounds:
+        # encode_cplex_hd_milp_plan(domain, instance, int(horizon), float(sparsification), bound)
         encode_gurobi_hd_milp_plan(domain, instance, int(horizon), float(sparsification), bound)
     elif not setDomain:
         print ('Domain is not provided.')
